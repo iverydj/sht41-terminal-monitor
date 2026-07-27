@@ -1,0 +1,12 @@
+.venv/
+*.pyc
+__pycache__/
+tests/__pycache__/
+data/
+exports/
+sht41_logger_error.txt
+build/
+release/
+*.lnk
+.agents/
+.codex/

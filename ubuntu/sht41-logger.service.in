@@ -1,0 +1,26 @@
+[Unit]
+Description=SHT41 temperature and humidity logger
+After=local-fs.target
+
+[Service]
+Type=simple
+User=@INSTALL_USER@
+Group=@INSTALL_GROUP@
+SupplementaryGroups=dialout
+WorkingDirectory=/opt/sht41-terminal-monitor
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=SHT41_STATE_DIRECTORY=/var/lib/sht41-terminal-monitor
+ExecStart=/usr/bin/python3 /opt/sht41-terminal-monitor/sht41_monitor.py --logger
+Restart=always
+RestartSec=5
+StateDirectory=sht41-terminal-monitor
+StateDirectoryMode=0750
+UMask=0027
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,4 @@
+*.sh text eol=lf
+ubuntu/sht41-monitor text eol=lf
+*.service.in text eol=lf
+*.cmd text eol=crlf

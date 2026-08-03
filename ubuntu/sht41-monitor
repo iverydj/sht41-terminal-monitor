@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+PYTHONDONTWRITEBYTECODE=1 exec /usr/bin/python3 \
+    /opt/sht41-terminal-monitor/sht41_monitor.py

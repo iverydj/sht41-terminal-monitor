@@ -25,10 +25,19 @@ APPLICATION_DIRECTORY = (
 )
 
 
+def _default_state_directory(platform_name: str = sys.platform) -> Path:
+    override = os.environ.get("SHT41_STATE_DIRECTORY")
+    if override:
+        return Path(override).expanduser()
+    if platform_name.startswith("linux"):
+        return Path("/var/lib/sht41-terminal-monitor")
+    return APPLICATION_DIRECTORY
+
+
 class AppConfig:
     """사용자가 바꿀 수 있는 설정. 명령행 옵션은 사용하지 않는다."""
 
-    SERIAL_PORT: str | None = None  # 예: "COM4"; None이면 자동 검색
+    SERIAL_PORT: str | None = None  # 예: "COM4", "/dev/ttyACM0"; None이면 자동 검색
     BAUD_RATE = 115_200
     SERIAL_TIMEOUT_SECONDS = 3.0
     PROBE_TIMEOUT_SECONDS = 5.0
@@ -42,9 +51,10 @@ class AppConfig:
         ("최근 1주", 7 * 24 * 60 * 60),
     )
 
-    DATA_DIRECTORY = APPLICATION_DIRECTORY / "data"
-    EXPORT_DIRECTORY = APPLICATION_DIRECTORY / "exports"
-    LOGGER_ERROR_PATH = APPLICATION_DIRECTORY / "sht41_logger_error.txt"
+    STATE_DIRECTORY = _default_state_directory()
+    DATA_DIRECTORY = STATE_DIRECTORY / "data"
+    EXPORT_DIRECTORY = STATE_DIRECTORY / "exports"
+    LOGGER_ERROR_PATH = STATE_DIRECTORY / "sht41_logger_error.txt"
     SENSOR_SCAN_SECONDS = 2
     MAX_SENSOR_NAME_WIDTH = 30
     MIN_TERMINAL_COLUMNS = 120
@@ -575,7 +585,7 @@ class SHT41Serial:
             from serial.tools import list_ports
         except ImportError as exc:
             raise RuntimeError(
-                "pyserial이 없습니다. setup.cmd를 먼저 실행하세요."
+                "pyserial이 없습니다. 운영체제용 설치 스크립트를 먼저 실행하세요."
             ) from exc
         return serial, list_ports
 
@@ -991,6 +1001,7 @@ def render_dashboard(
     sensor_count: int = 1,
     use_color: bool = True,
     notice: str | None = None,
+    allow_logger_stop: bool = True,
 ) -> str:
     columns, lines = shutil.get_terminal_size((140, 46))
     if columns < AppConfig.MIN_TERMINAL_COLUMNS or lines < AppConfig.MIN_TERMINAL_LINES:
@@ -1049,8 +1060,10 @@ def render_dashboard(
         footer = (
             f"센서 {sensor_index + 1}/{sensor_count} · ←/→ 전환 · "
             f"N 이름 변경 · E CSV · 자동 시작 {startup} · "
-            "Ctrl+C 화면 닫기 · Ctrl+Q 전체 기록기 종료"
+            "Ctrl+C 화면 닫기"
         )
+        if allow_logger_stop:
+            footer += " · Ctrl+Q 전체 기록기 종료"
     else:
         footer = notice
     rows.append(
@@ -1066,6 +1079,7 @@ def render_waiting_screen(
     sensor_serial: int,
     autostart_enabled: bool,
     use_color: bool = True,
+    allow_logger_stop: bool = True,
 ) -> str:
     columns, lines = shutil.get_terminal_size((140, 46))
     if columns < AppConfig.MIN_TERMINAL_COLUMNS or lines < AppConfig.MIN_TERMINAL_LINES:
@@ -1088,8 +1102,10 @@ def render_waiting_screen(
     startup = "켜짐" if autostart_enabled else "꺼짐"
     footer = (
         f"재연결 자동 검색 중 · 자동 시작 {startup} · "
-        "Ctrl+C 화면 닫기 · Ctrl+Q 전체 기록기 종료"
+        "Ctrl+C 화면 닫기"
     )
+    if allow_logger_stop:
+        footer += " · Ctrl+Q 전체 기록기 종료"
     rows[-1] = (
         (ANSI_DIM if use_color else "")
         + _fit(footer, columns)
@@ -1144,28 +1160,43 @@ def _resize_windows_console(handle, columns: int, lines: int) -> None:
 
 
 class LoggerMutex:
-    def __init__(self, handle):
+    def __init__(self, handle, windows: bool):
         self.handle = handle
+        self.windows = windows
 
     @classmethod
     def acquire(cls) -> "LoggerMutex | None":
-        if os.name != "nt":
-            raise RuntimeError("백그라운드 기록기는 Windows에서만 지원합니다.")
-        identity = hashlib.sha256(
-            str(APPLICATION_DIRECTORY).lower().encode("utf-8")
-        ).hexdigest()[:16]
-        handle = ctypes.windll.kernel32.CreateMutexW(
-            None, False, f"Local\\SHT41MonitorLogger_{identity}"
-        )
-        if not handle:
-            raise RuntimeError("백그라운드 기록기 잠금을 만들지 못했습니다.")
-        if ctypes.windll.kernel32.GetLastError() == 183:
-            ctypes.windll.kernel32.CloseHandle(handle)
-            return None
-        return cls(handle)
+        if os.name == "nt":
+            identity = hashlib.sha256(
+                str(APPLICATION_DIRECTORY).lower().encode("utf-8")
+            ).hexdigest()[:16]
+            handle = ctypes.windll.kernel32.CreateMutexW(
+                None, False, f"Local\\SHT41MonitorLogger_{identity}"
+            )
+            if not handle:
+                raise RuntimeError("백그라운드 기록기 잠금을 만들지 못했습니다.")
+            if ctypes.windll.kernel32.GetLastError() == 183:
+                ctypes.windll.kernel32.CloseHandle(handle)
+                return None
+            return cls(handle, windows=True)
+        if os.name == "posix":
+            import fcntl
+
+            AppConfig.DATA_DIRECTORY.mkdir(parents=True, exist_ok=True)
+            handle = (AppConfig.DATA_DIRECTORY / ".logger.lock").open("a+b")
+            try:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                handle.close()
+                return None
+            return cls(handle, windows=False)
+        raise RuntimeError(f"지원하지 않는 운영체제입니다: {os.name}")
 
     def close(self) -> None:
-        ctypes.windll.kernel32.CloseHandle(self.handle)
+        if self.windows:
+            ctypes.windll.kernel32.CloseHandle(self.handle)
+        else:
+            self.handle.close()
 
 
 def _is_logger_mode() -> bool:
@@ -1343,6 +1374,25 @@ def _configure_windows_autostart() -> bool:
     return True
 
 
+def _linux_service_state(command: str) -> bool:
+    if not sys.platform.startswith("linux"):
+        return False
+    result = subprocess.run(
+        ["systemctl", command, "--quiet", "sht41-logger.service"],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+    return result.returncode == 0
+
+
+def _configure_autostart() -> bool:
+    if os.name == "nt":
+        return _configure_windows_autostart()
+    return _linux_service_state("is-enabled")
+
+
 def load_active_sensor_summaries(
     now: int | None = None,
 ) -> list[SensorSummary]:
@@ -1417,7 +1467,16 @@ def _ensure_logger() -> list[SensorSummary]:
         return summaries
 
     logger_started_at = time.time()
-    _spawn_logger()
+    if os.name == "nt":
+        _spawn_logger()
+    elif sys.platform.startswith("linux"):
+        if not _linux_service_state("is-active"):
+            raise RuntimeError(
+                "sht41-logger.service가 실행 중이 아닙니다. "
+                "sudo systemctl start sht41-logger.service로 시작하세요."
+            )
+    else:
+        raise RuntimeError(f"지원하지 않는 운영체제입니다: {sys.platform}")
     deadline = time.monotonic() + AppConfig.PROBE_TIMEOUT_SECONDS + 12
     while time.monotonic() < deadline:
         time.sleep(0.2)
@@ -1456,27 +1515,70 @@ def _validate_sensor_name(name: str) -> str:
     return cleaned
 
 
-def _read_dashboard_action() -> str | None:
-    if os.name != "nt":
+def _enable_unix_terminal_input():
+    if os.name != "posix" or not sys.stdin.isatty():
         return None
-    import msvcrt
+    import termios
+    import tty
 
-    action = None
-    while msvcrt.kbhit():
-        key = msvcrt.getwch()
-        if key in ("\x00", "\xe0"):
-            extended_key = msvcrt.getwch()
-            if extended_key == "K":
-                action = "previous_sensor"
-            elif extended_key == "M":
-                action = "next_sensor"
-        elif key == "\x11":
-            return "stop_logger"
-        elif key.casefold() == "e":
-            action = "export_csv"
-        elif key.casefold() == "n":
-            action = "rename_sensor"
-    return action
+    file_descriptor = sys.stdin.fileno()
+    original_state = termios.tcgetattr(file_descriptor)
+    tty.setcbreak(file_descriptor)
+    return file_descriptor, original_state
+
+
+def _restore_unix_terminal_input(terminal_state) -> None:
+    if terminal_state is None:
+        return
+    import termios
+
+    file_descriptor, original_state = terminal_state
+    termios.tcsetattr(file_descriptor, termios.TCSADRAIN, original_state)
+
+
+def _read_dashboard_action() -> str | None:
+    if os.name == "nt":
+        import msvcrt
+
+        action = None
+        while msvcrt.kbhit():
+            key = msvcrt.getwch()
+            if key in ("\x00", "\xe0"):
+                extended_key = msvcrt.getwch()
+                if extended_key == "K":
+                    action = "previous_sensor"
+                elif extended_key == "M":
+                    action = "next_sensor"
+            elif key == "\x11":
+                return "stop_logger"
+            elif key.casefold() == "e":
+                action = "export_csv"
+            elif key.casefold() == "n":
+                action = "rename_sensor"
+        return action
+
+    if os.name != "posix" or not sys.stdin.isatty():
+        return None
+    import select
+
+    file_descriptor = sys.stdin.fileno()
+    if not select.select([file_descriptor], [], [], 0)[0]:
+        return None
+    key_bytes = os.read(file_descriptor, 1)
+    while len(key_bytes) < 8 and select.select(
+        [file_descriptor], [], [], 0.002
+    )[0]:
+        key_bytes += os.read(file_descriptor, 1)
+    if key_bytes.endswith(b"\x1b[D"):
+        return "previous_sensor"
+    if key_bytes.endswith(b"\x1b[C"):
+        return "next_sensor"
+    key = key_bytes.decode("utf-8", errors="ignore").casefold()
+    if key == "e":
+        return "export_csv"
+    if key == "n":
+        return "rename_sensor"
+    return None
 
 
 def run_dashboard_app() -> None:
@@ -1484,14 +1586,16 @@ def run_dashboard_app() -> None:
     print("백그라운드 기록기와 SHT41 센서를 확인하는 중입니다...")
     cursor_hidden = False
     database: HistoryDatabase | None = None
+    terminal_state = None
     try:
-        autostart_enabled = _configure_windows_autostart()
+        autostart_enabled = _configure_autostart()
         summaries = _ensure_logger()
         selected_serial = summaries[0].sensor_serial
         last_sensor_name = summaries[0].display_name
         selected_path: Path | None = None
         print("\x1b[2J\x1b[H\x1b[?25l", end="", flush=True)
         cursor_hidden = True
+        terminal_state = _enable_unix_terminal_input()
         last_render_signature = None
         notice = None
         notice_until = 0.0
@@ -1512,6 +1616,7 @@ def run_dashboard_app() -> None:
                             last_sensor_name,
                             selected_serial,
                             autostart_enabled,
+                            allow_logger_stop=os.name == "nt",
                         )
                         print(
                             "\x1b[H" + waiting + "\x1b[J",
@@ -1595,6 +1700,7 @@ def run_dashboard_app() -> None:
                     sensor_index=sensor_index,
                     sensor_count=len(summaries),
                     notice=notice,
+                    allow_logger_stop=os.name == "nt",
                 )
                 print("\x1b[H" + dashboard + "\x1b[J", end="", flush=True)
                 last_render_signature = render_signature
@@ -1611,12 +1717,15 @@ def run_dashboard_app() -> None:
                 next_sensor_scan = 0.0
                 continue
             if action == "rename_sensor":
+                _restore_unix_terminal_input(terminal_state)
+                terminal_state = None
                 print("\x1b[2J\x1b[H\x1b[?25h", end="", flush=True)
                 entered_name = input(
                     f"센서 {selected_serial}의 새 이름 "
                     f"(현재: {sensor_name}, Enter만 누르면 취소): "
                 )
                 print("\x1b[2J\x1b[H\x1b[?25l", end="", flush=True)
+                terminal_state = _enable_unix_terminal_input()
                 if entered_name.strip():
                     try:
                         sensor_name = _validate_sensor_name(entered_name)
@@ -1631,7 +1740,7 @@ def run_dashboard_app() -> None:
                 csv_path, row_count = export_history_csv(
                     database, sensor_export_directory(selected_serial)
                 )
-                relative_path = csv_path.relative_to(APPLICATION_DIRECTORY)
+                relative_path = csv_path.relative_to(AppConfig.STATE_DIRECTORY)
                 notice = (
                     f"CSV 저장 완료 · {relative_path} · 5분 기록 {row_count:,}행 · "
                     "E 다시 내보내기 · Ctrl+C 화면 닫기"
@@ -1642,6 +1751,7 @@ def run_dashboard_app() -> None:
     except KeyboardInterrupt:
         pass
     finally:
+        _restore_unix_terminal_input(terminal_state)
         if cursor_hidden:
             print("\x1b[0m\x1b[?25h")
         if database is not None:

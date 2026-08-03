@@ -8,5 +8,4 @@ sht41_logger_error.txt
 build/
 release/
 *.lnk
-.agents/
-.codex/
+PROJECT_STATE.md

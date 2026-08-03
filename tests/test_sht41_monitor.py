@@ -4,6 +4,7 @@ import tempfile
 import sys
 import threading
 import time
+import types
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -11,12 +12,17 @@ from unittest.mock import MagicMock, patch
 from sht41_monitor import (
     AppConfig,
     HistoryDatabase,
+    LoggerMutex,
     PlotPoint,
     RuntimeStatus,
     SensorSummary,
     SensorReading,
+    _configure_autostart,
     _configure_windows_autostart,
+    _default_state_directory,
     _display_width,
+    _linux_service_state,
+    _read_dashboard_action,
     _run_sensor_connection,
     _validate_sensor_name,
     braille_graph,
@@ -52,6 +58,78 @@ class FactoryParserTests(unittest.TestCase):
         for line in invalid:
             with self.subTest(line=line), self.assertRaises(ValueError):
                 parse_factory_line(line, timestamp=123)
+
+
+class PlatformConfigTests(unittest.TestCase):
+    def test_linux_uses_system_state_directory(self):
+        with patch.dict("os.environ", {}, clear=True):
+            self.assertEqual(
+                _default_state_directory("linux"),
+                Path("/var/lib/sht41-terminal-monitor"),
+            )
+
+    def test_state_directory_environment_override_is_explicit(self):
+        with patch.dict(
+            "os.environ", {"SHT41_STATE_DIRECTORY": "/srv/sht41"}, clear=True
+        ):
+            self.assertEqual(
+                _default_state_directory("linux"), Path("/srv/sht41")
+            )
+
+    @patch("sht41_monitor.subprocess.run")
+    def test_linux_service_state_uses_systemctl(self, run):
+        run.return_value.returncode = 0
+        with patch("sht41_monitor.sys.platform", "linux"):
+            self.assertTrue(_linux_service_state("is-enabled"))
+        self.assertEqual(
+            run.call_args.args[0],
+            ["systemctl", "is-enabled", "--quiet", "sht41-logger.service"],
+        )
+
+    @patch("sht41_monitor._linux_service_state", return_value=True)
+    def test_linux_autostart_reports_systemd_enabled(self, service_state):
+        with (
+            patch("sht41_monitor.os.name", "posix"),
+            patch("sht41_monitor.sys.platform", "linux"),
+        ):
+            self.assertTrue(_configure_autostart())
+        service_state.assert_called_once_with("is-enabled")
+
+    def test_posix_logger_mutex_uses_nonblocking_file_lock(self):
+        fake_fcntl = types.SimpleNamespace(
+            LOCK_EX=1,
+            LOCK_NB=2,
+            flock=MagicMock(),
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            data_directory = Path(temp_dir) / "data"
+            with (
+                patch.object(AppConfig, "DATA_DIRECTORY", data_directory),
+                patch("sht41_monitor.os.name", "posix"),
+                patch.dict(sys.modules, {"fcntl": fake_fcntl}),
+            ):
+                mutex = LoggerMutex.acquire()
+            self.assertIsNotNone(mutex)
+            fake_fcntl.flock.assert_called_once_with(
+                mutex.handle.fileno(), fake_fcntl.LOCK_EX | fake_fcntl.LOCK_NB
+            )
+            mutex.close()
+            self.assertTrue(mutex.handle.closed)
+
+    @patch("sht41_monitor.os.read", side_effect=[b"\x1b", b"[", b"D"])
+    @patch(
+        "select.select",
+        side_effect=[([0], [], []), ([0], [], []), ([0], [], []), ([], [], [])],
+    )
+    def test_posix_terminal_reads_left_arrow(self, _select, _read):
+        stdin = MagicMock()
+        stdin.isatty.return_value = True
+        stdin.fileno.return_value = 0
+        with (
+            patch("sht41_monitor.os.name", "posix"),
+            patch("sht41_monitor.sys.stdin", stdin),
+        ):
+            self.assertEqual(_read_dashboard_action(), "previous_sensor")
 
 
 class DatabaseTests(unittest.TestCase):
@@ -229,6 +307,22 @@ class GraphTests(unittest.TestCase):
 
     @patch("sht41_monitor.shutil.get_terminal_size", return_value=(140, 46))
     @patch("sht41_monitor.time.time", return_value=1_000)
+    def test_linux_dashboard_does_not_offer_to_stop_systemd_logger(self, _, __):
+        status = RuntimeStatus(
+            "running", 1_000, 1234567890, "/dev/ttyACM0", 21.42, 72.38, "running"
+        )
+        dashboard = render_dashboard(
+            status,
+            [PlotPoint(1_000, 21.42, 72.38)],
+            True,
+            use_color=False,
+            allow_logger_stop=False,
+        )
+        self.assertIn("Ctrl+C 화면 닫기", dashboard.splitlines()[-1])
+        self.assertNotIn("Ctrl+Q", dashboard.splitlines()[-1])
+
+    @patch("sht41_monitor.shutil.get_terminal_size", return_value=(140, 46))
+    @patch("sht41_monitor.time.time", return_value=1_000)
     def test_dashboard_fills_terminal_and_explains_controls(self, _, __):
         status = RuntimeStatus(
             "running", 1_000, 1234567890, "COM4", 21.42, 72.38, "running"
@@ -305,9 +399,11 @@ class GraphTests(unittest.TestCase):
             with (
                 patch("sht41_monitor._enable_windows_terminal"),
                 patch(
-                    "sht41_monitor._configure_windows_autostart",
+                    "sht41_monitor._configure_autostart",
                     return_value=True,
                 ),
+                patch("sht41_monitor._enable_unix_terminal_input"),
+                patch("sht41_monitor._restore_unix_terminal_input"),
                 patch("sht41_monitor._ensure_logger", return_value=[summary]),
                 patch(
                     "sht41_monitor.load_active_sensor_summaries",

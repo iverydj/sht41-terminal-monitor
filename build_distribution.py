@@ -26,7 +26,9 @@ def _remove_owned_directory(path: Path) -> None:
     resolved_root = BuildConfig.ROOT.resolve()
     resolved_path = path.resolve()
     if resolved_root not in resolved_path.parents:
-        raise RuntimeError(f"빌드 폴더 밖은 삭제할 수 없습니다: {resolved_path}")
+        raise RuntimeError(
+            f"Refusing to delete outside the build folder: {resolved_path}"
+        )
     if path.exists():
         def remove_readonly(function, target, _error):
             os.chmod(target, stat.S_IWRITE)
@@ -61,7 +63,9 @@ def _build_executable(name: str, console: bool) -> None:
 
 def main() -> None:
     if sys.platform != "win32" or struct.calcsize("P") != 8:
-        raise RuntimeError("Windows 64비트 환경에서만 배포 파일을 만들 수 있습니다.")
+        raise RuntimeError(
+            "The Windows distribution can only be built on 64-bit Windows."
+        )
 
     _remove_owned_directory(BuildConfig.BUILD_ROOT)
     BuildConfig.RELEASE_DIRECTORY.mkdir(parents=True, exist_ok=True)
@@ -94,7 +98,7 @@ def main() -> None:
                 arcname=Path(BuildConfig.STAGING_DIRECTORY.name) / file_path.name,
             )
 
-    print(f"완료: {BuildConfig.ZIP_PATH}")
+    print(f"Done: {BuildConfig.ZIP_PATH}")
 
 
 if __name__ == "__main__":

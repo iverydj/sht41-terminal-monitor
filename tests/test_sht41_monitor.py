@@ -70,10 +70,10 @@ class PlatformConfigTests(unittest.TestCase):
 
     def test_state_directory_environment_override_is_explicit(self):
         with patch.dict(
-            "os.environ", {"SHT41_STATE_DIRECTORY": "/srv/sht41"}, clear=True
+            "os.environ", {"SHT41_STATE_DIRECTORY": "/data/sht41"}, clear=True
         ):
             self.assertEqual(
-                _default_state_directory("linux"), Path("/srv/sht41")
+                _default_state_directory("linux"), Path("/data/sht41")
             )
 
     @patch("sht41_monitor.subprocess.run")
@@ -175,7 +175,7 @@ class DatabaseTests(unittest.TestCase):
                 "COM4",
                 20.25,
                 61.50,
-                "정상적으로 기록 중입니다.",
+                "Logging normally.",
             ),
         )
 
@@ -184,12 +184,12 @@ class DatabaseTests(unittest.TestCase):
             self.db.bind_sensor(1)
 
     def test_stores_a_human_name_for_the_sensor(self):
-        self.assertEqual(self.db.display_name(), "이름 없음")
-        self.db.set_display_name("배양기 내부")
-        self.assertEqual(self.db.display_name(), "배양기 내부")
+        self.assertEqual(self.db.display_name(), "Unnamed")
+        self.db.set_display_name("Incubator")
+        self.assertEqual(self.db.display_name(), "Incubator")
 
     def test_exports_all_five_minute_history_as_excel_friendly_csv(self):
-        self.db.set_display_name("실험실 A")
+        self.db.set_display_name("Lab A")
         for timestamp, temp, humidity in (
             (600, 20.00, 60.00),
             (610, 21.00, 62.00),
@@ -205,19 +205,19 @@ class DatabaseTests(unittest.TestCase):
         )
 
         self.assertEqual(row_count, 2)
-        self.assertTrue(csv_path.name.startswith("SHT41_기록_"))
+        self.assertTrue(csv_path.name.startswith("SHT41_history_"))
         self.assertTrue(csv_path.name.endswith(".csv"))
         self.assertTrue(csv_path.read_bytes().startswith(b"\xef\xbb\xbf"))
         with csv_path.open(encoding="utf-8-sig", newline="") as source:
             rows = list(csv.DictReader(source))
-        self.assertEqual(rows[0]["센서 이름"], "실험실 A")
-        self.assertEqual(rows[0]["센서 ID"], "1234567890")
-        self.assertEqual(rows[0]["5분 구간 시작 (UTC)"], "1970-01-01T00:10:00Z")
-        self.assertEqual(rows[0]["평균 온도 (°C)"], "20.50")
-        self.assertEqual(rows[0]["최저 온도 (°C)"], "20.00")
-        self.assertEqual(rows[0]["최고 온도 (°C)"], "21.00")
-        self.assertEqual(rows[0]["평균 습도 (%RH)"], "61.00")
-        self.assertEqual(rows[0]["측정 횟수"], "2")
+        self.assertEqual(rows[0]["Sensor name"], "Lab A")
+        self.assertEqual(rows[0]["Sensor ID"], "1234567890")
+        self.assertEqual(rows[0]["5-min interval start (UTC)"], "1970-01-01T00:10:00Z")
+        self.assertEqual(rows[0]["Mean temperature (°C)"], "20.50")
+        self.assertEqual(rows[0]["Min temperature (°C)"], "20.00")
+        self.assertEqual(rows[0]["Max temperature (°C)"], "21.00")
+        self.assertEqual(rows[0]["Mean humidity (%RH)"], "61.00")
+        self.assertEqual(rows[0]["Sample count"], "2")
 
     def test_migrates_the_legacy_database_to_its_sensor_id_directory(self):
         self.db.close()
@@ -242,8 +242,8 @@ class DatabaseTests(unittest.TestCase):
         root = Path(self.temp_dir.name) / "data"
         with patch.object(AppConfig, "DATA_DIRECTORY", root):
             for serial, name, port in (
-                (1234567890, "배양기 내부", "COM4"),
-                (2345678901, "실험실 A", "COM5"),
+                (1234567890, "Incubator", "COM4"),
+                (2345678901, "Lab A", "COM5"),
             ):
                 database = HistoryDatabase(sensor_database_path(serial))
                 database.bind_sensor(serial)
@@ -261,7 +261,7 @@ class DatabaseTests(unittest.TestCase):
         )
         self.assertEqual(
             [summary.display_name for summary in summaries],
-            ["배양기 내부", "실험실 A"],
+            ["Incubator", "Lab A"],
         )
         self.db = HistoryDatabase(Path(self.temp_dir.name) / "history.sqlite3")
         self.db.bind_sensor(1234567890)
@@ -281,7 +281,7 @@ class GraphTests(unittest.TestCase):
 
     def test_panel_has_plain_language_average_and_labeled_y_axes(self):
         panel = make_panel(
-            "최근 10분",
+            "Last 10 min",
             600,
             [PlotPoint(10, 20.0, 50.0), PlotPoint(20, 21.0, 51.0)],
             20,
@@ -291,10 +291,10 @@ class GraphTests(unittest.TestCase):
         )
         self.assertEqual(len(panel), 16)
         self.assertTrue(all(_display_width(line) == 60 for line in panel))
-        self.assertIn("기간 평균", panel[1])
-        self.assertIn("온도", panel[1])
-        self.assertIn("습도", panel[1])
-        self.assertNotIn("눈금", panel[2])
+        self.assertIn("Mean", panel[1])
+        self.assertIn("temp", panel[1])
+        self.assertIn("humidity", panel[1])
+        self.assertNotIn("scale", panel[2])
         self.assertIn("°C", panel[2])
         self.assertIn("%RH", panel[2])
 
@@ -302,8 +302,8 @@ class GraphTests(unittest.TestCase):
         header = make_current_header(21.42, 72.38, 1_000, 140, use_color=False)
         self.assertEqual(len(header), 9)
         self.assertTrue(all(_display_width(line) == 140 for line in header))
-        self.assertIn("현재 온도", header[1])
-        self.assertIn("현재 상대습도", header[1])
+        self.assertIn("Temperature", header[1])
+        self.assertIn("Relative humidity", header[1])
 
     @patch("sht41_monitor.shutil.get_terminal_size", return_value=(140, 46))
     @patch("sht41_monitor.time.time", return_value=1_000)
@@ -318,7 +318,7 @@ class GraphTests(unittest.TestCase):
             use_color=False,
             allow_logger_stop=False,
         )
-        self.assertIn("Ctrl+C 화면 닫기", dashboard.splitlines()[-1])
+        self.assertIn("Ctrl+C close monitor", dashboard.splitlines()[-1])
         self.assertNotIn("Ctrl+Q", dashboard.splitlines()[-1])
 
     @patch("sht41_monitor.shutil.get_terminal_size", return_value=(140, 46))
@@ -336,7 +336,7 @@ class GraphTests(unittest.TestCase):
             status,
             points,
             True,
-            sensor_name="배양기 내부",
+            sensor_name="Incubator",
             sensor_index=1,
             sensor_count=2,
             use_color=False,
@@ -344,39 +344,40 @@ class GraphTests(unittest.TestCase):
         lines = dashboard.splitlines()
         self.assertEqual(len(lines), 46)
         self.assertTrue(all(_display_width(line) == 140 for line in lines))
-        self.assertIn("배양기 내부", lines[0])
+        self.assertIn("Incubator", lines[0])
         self.assertIn("ID 1234567890", lines[0])
-        self.assertIn("센서 2/2", lines[-1])
-        self.assertIn("←/→ 전환", lines[-1])
-        self.assertIn("N 이름 변경", lines[-1])
+        self.assertIn("Sensor 2/2", lines[-1])
+        self.assertIn("←/→ switch", lines[-1])
+        self.assertIn("N rename", lines[-1])
         self.assertIn("E CSV", lines[-1])
-        self.assertIn("Ctrl+C 화면 닫기", lines[-1])
-        self.assertIn("Ctrl+Q 전체 기록기 종료", lines[-1])
+        self.assertIn("Ctrl+C close monitor", lines[-1])
+        self.assertIn("Ctrl+Q stop logger", lines[-1])
 
     def test_sensor_name_validation_limits_terminal_width(self):
-        self.assertEqual(_validate_sensor_name("  배양기 내부  "), "배양기 내부")
+        self.assertEqual(_validate_sensor_name("  Incubator  "), "Incubator")
         with self.assertRaises(ValueError):
-            _validate_sensor_name("가" * 16)
+            # Full-width characters occupy two terminal columns each.
+            _validate_sensor_name("\uff21" * 16)
 
     @patch("sht41_monitor.shutil.get_terminal_size", return_value=(140, 46))
     def test_waiting_screen_explains_automatic_reconnection(self, _):
         waiting = render_waiting_screen(
-            "배양기 내부", 1234567890, True, use_color=False
+            "Incubator", 1234567890, True, use_color=False
         )
         lines = waiting.splitlines()
         self.assertEqual(len(lines), 46)
         self.assertTrue(all(_display_width(line) == 140 for line in lines))
-        self.assertIn("SHT41 센서 재연결 대기 중", waiting)
-        self.assertIn("배양기 내부 · ID 1234567890", waiting)
-        self.assertIn("자동으로 이어갑니다", waiting)
-        self.assertIn("Ctrl+Q 전체 기록기 종료", lines[-1])
+        self.assertIn("Waiting for the SHT41 sensor to reconnect", waiting)
+        self.assertIn("Incubator · ID 1234567890", waiting)
+        self.assertIn("resume automatically", waiting)
+        self.assertIn("Ctrl+Q stop logger", lines[-1])
 
     def test_monitor_waits_and_restores_dashboard_after_reconnection(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             database_path = Path(temp_dir) / "sht41_history.sqlite3"
             database = HistoryDatabase(database_path)
             database.bind_sensor(1234567890)
-            database.set_display_name("배양기 내부")
+            database.set_display_name("Incubator")
             now = int(time.time())
             database.record(
                 SensorReading(now, 1234567890, 21.42, 72.38)
@@ -388,7 +389,7 @@ class GraphTests(unittest.TestCase):
             status = database.load_runtime_status()
             database.close()
             summary = SensorSummary(
-                1234567890, "배양기 내부", database_path, status
+                1234567890, "Incubator", database_path, status
             )
             scans = iter(([], [summary]))
 
@@ -424,8 +425,8 @@ class GraphTests(unittest.TestCase):
                 run_dashboard_app()
 
             rendered = output.getvalue()
-            self.assertIn("SHT41 센서 재연결 대기 중", rendered)
-            self.assertIn("배양기 내부 · ID 1234567890 · COM4", rendered)
+            self.assertIn("Waiting for the SHT41 sensor to reconnect", rendered)
+            self.assertIn("Incubator · ID 1234567890 · COM4", rendered)
 
 
 class BackgroundLoggerTests(unittest.TestCase):
@@ -435,13 +436,16 @@ class BackgroundLoggerTests(unittest.TestCase):
             logger.touch()
             key = MagicMock()
             key.__enter__.return_value = "registry-key"
+            fake_winreg = MagicMock()
+            fake_winreg.OpenKey.return_value = key
             with (
                 patch.object(sys, "frozen", True, create=True),
+                patch("sht41_monitor.os.name", "nt"),
+                patch.dict(sys.modules, {"winreg": fake_winreg}),
                 patch("sht41_monitor._logger_executable", return_value=logger),
-                patch("winreg.OpenKey", return_value=key),
-                patch("winreg.SetValueEx") as set_value,
             ):
                 self.assertTrue(_configure_windows_autostart())
+            set_value = fake_winreg.SetValueEx
             set_value.assert_called_once()
             arguments = set_value.call_args.args
             self.assertEqual(arguments[1], "SHT41 Monitor Logger")

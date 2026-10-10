@@ -35,9 +35,9 @@ def _default_state_directory(platform_name: str = sys.platform) -> Path:
 
 
 class AppConfig:
-    """사용자가 바꿀 수 있는 설정. 명령행 옵션은 사용하지 않는다."""
+    """User-editable settings. Command-line options are intentionally not used."""
 
-    SERIAL_PORT: str | None = None  # 예: "COM4", "/dev/ttyACM0"; None이면 자동 검색
+    SERIAL_PORT: str | None = None  # e.g. "COM4", "/dev/ttyACM0"; None = auto-detect
     BAUD_RATE = 115_200
     SERIAL_TIMEOUT_SECONDS = 3.0
     PROBE_TIMEOUT_SECONDS = 5.0
@@ -45,10 +45,10 @@ class AppConfig:
     DISPLAY_SAMPLE_SECONDS = 10
     PERSIST_BUCKET_SECONDS = 5 * 60
     PANELS = (
-        ("최근 10분", 10 * 60),
-        ("최근 1시간", 60 * 60),
-        ("최근 1일", 24 * 60 * 60),
-        ("최근 1주", 7 * 24 * 60 * 60),
+        ("Last 10 min", 10 * 60),
+        ("Last 1 hour", 60 * 60),
+        ("Last 24 hours", 24 * 60 * 60),
+        ("Last 7 days", 7 * 24 * 60 * 60),
     )
 
     STATE_DIRECTORY = _default_state_directory()
@@ -120,7 +120,7 @@ def logger_stop_request_path(data_directory: Path | None = None) -> Path:
 
 
 def parse_factory_line(line: str, timestamp: int | None = None) -> SensorReading:
-    """Adafruit 출고 펌웨어의 CSV 한 줄을 엄격하게 해석한다."""
+    """Strictly parse one CSV line from the Adafruit factory firmware."""
     parts = [part.strip() for part in line.strip().split(",")]
     if len(parts) != 4:
         raise ValueError("expected four CSV fields")
@@ -128,7 +128,7 @@ def parse_factory_line(line: str, timestamp: int | None = None) -> SensorReading
     sensor_serial = int(parts[0])
     temperature_c = float(parts[1])
     humidity_rh = float(parts[2])
-    int(parts[3])  # 터치값은 형식 검증만 하고 기록하지 않는다.
+    int(parts[3])  # The touch value is validated but not recorded.
 
     if sensor_serial <= 0:
         raise ValueError("invalid sensor serial")
@@ -204,14 +204,15 @@ class HistoryDatabase:
             return
         if int(row[0]) != sensor_serial:
             raise RuntimeError(
-                f"기록 파일은 센서 {row[0]} 전용인데 현재 센서는 {sensor_serial}입니다."
+                f"This history file belongs to sensor {row[0]}, "
+                f"but the connected sensor is {sensor_serial}."
             )
 
     def display_name(self) -> str:
         row = self.connection.execute(
             "SELECT value FROM metadata WHERE key = 'display_name'"
         ).fetchone()
-        return "이름 없음" if row is None else str(row[0])
+        return "Unnamed" if row is None else str(row[0])
 
     def set_display_name(self, name: str) -> None:
         self.connection.execute(
@@ -273,7 +274,7 @@ class HistoryDatabase:
             port_name=port_name,
             temperature_c=reading.temperature_c,
             humidity_rh=reading.humidity_rh,
-            message="정상적으로 기록 중입니다.",
+            message="Logging normally.",
         )
 
     def publish_state(self, state: str, message: str) -> None:
@@ -450,8 +451,8 @@ def migrate_legacy_database(data_directory: Path | None = None) -> Path | None:
     ]
     if sidecars:
         raise RuntimeError(
-            "기존 기록 파일이 사용 중입니다. 이전 Logger를 완전히 종료한 뒤 "
-            "다시 실행하세요."
+            "The legacy history file is in use. Stop the old logger completely "
+            "and try again."
         )
 
     connection = sqlite3.connect(
@@ -464,12 +465,13 @@ def migrate_legacy_database(data_directory: Path | None = None) -> Path | None:
     finally:
         connection.close()
     if row is None:
-        raise RuntimeError("기존 기록 파일에서 센서 ID를 찾지 못했습니다.")
+        raise RuntimeError("No sensor ID found in the legacy history file.")
 
     destination = sensor_database_path(int(row[0]), root)
     if destination.exists():
         raise RuntimeError(
-            f"기존 기록과 새 센서별 기록이 모두 존재합니다: {destination}"
+            "Both a legacy history file and a per-sensor history file exist: "
+            f"{destination}"
         )
     destination.parent.mkdir(parents=True, exist_ok=True)
     legacy_path.replace(destination)
@@ -481,14 +483,14 @@ def export_history_csv(
     export_directory: Path,
     exported_at: int | None = None,
 ) -> tuple[Path, int]:
-    """장기 5분 기록 전체를 Excel에서 읽기 쉬운 CSV로 내보낸다."""
+    """Export the full long-term 5-minute history as an Excel-friendly CSV."""
     export_directory.mkdir(parents=True, exist_ok=True)
     export_time = int(time.time()) if exported_at is None else exported_at
     timestamp = datetime.fromtimestamp(export_time).strftime("%Y%m%d_%H%M%S")
-    destination = export_directory / f"SHT41_기록_{timestamp}.csv"
+    destination = export_directory / f"SHT41_history_{timestamp}.csv"
     suffix = 2
     while destination.exists():
-        destination = export_directory / f"SHT41_기록_{timestamp}_{suffix}.csv"
+        destination = export_directory / f"SHT41_history_{timestamp}_{suffix}.csv"
         suffix += 1
 
     latest_row = database.connection.execute(
@@ -499,21 +501,21 @@ def export_history_csv(
         "SELECT value FROM metadata WHERE key = 'sensor_serial'"
     ).fetchone()
     if sensor_row is None:
-        raise RuntimeError("기록 파일에서 센서 ID를 찾지 못했습니다.")
+        raise RuntimeError("No sensor ID found in the history file.")
     sensor_serial = int(sensor_row[0])
     display_name = database.display_name()
     fieldnames = (
-        "센서 이름",
-        "센서 ID",
-        "5분 구간 시작 (PC 시간)",
-        "5분 구간 시작 (UTC)",
-        "평균 온도 (°C)",
-        "최저 온도 (°C)",
-        "최고 온도 (°C)",
-        "평균 습도 (%RH)",
-        "최저 습도 (%RH)",
-        "최고 습도 (%RH)",
-        "측정 횟수",
+        "Sensor name",
+        "Sensor ID",
+        "5-min interval start (local time)",
+        "5-min interval start (UTC)",
+        "Mean temperature (°C)",
+        "Min temperature (°C)",
+        "Max temperature (°C)",
+        "Mean humidity (%RH)",
+        "Min humidity (%RH)",
+        "Max humidity (%RH)",
+        "Sample count",
     )
     row_count = 0
     last_bucket = -1
@@ -585,7 +587,8 @@ class SHT41Serial:
             from serial.tools import list_ports
         except ImportError as exc:
             raise RuntimeError(
-                "pyserial이 없습니다. 운영체제용 설치 스크립트를 먼저 실행하세요."
+                "pyserial is not installed. Run the installer for your operating "
+                "system first."
             ) from exc
         return serial, list_ports
 
@@ -631,7 +634,7 @@ class SHT41Serial:
                 except (UnicodeDecodeError, ValueError):
                     continue
                 return cls(device, port_name, reading)
-            raise RuntimeError(f"{port_name}: SHT41 데이터 없음")
+            raise RuntimeError(f"{port_name}: no SHT41 data")
         except serial.SerialException as exc:
             if device is not None and device.is_open:
                 device.close()
@@ -645,22 +648,22 @@ class SHT41Serial:
     def connect(cls) -> "SHT41Serial":
         candidates = cls.candidate_ports()
         if not candidates:
-            raise RuntimeError("SHT41 후보 USB 시리얼 포트를 찾지 못했습니다.")
+            raise RuntimeError("No candidate USB serial port for the SHT41 was found.")
         failures = []
         for port_name in candidates:
             try:
                 return cls.connect_port(port_name)
             except RuntimeError as exc:
                 failures.append(str(exc))
-        raise RuntimeError("SHT41 연결에 실패했습니다. " + "; ".join(failures))
+        raise RuntimeError("Could not connect to the SHT41. " + "; ".join(failures))
 
     def read(self) -> SensorReading:
         while True:
             raw = self.device.readline()
             if not raw:
                 raise RuntimeError(
-                    f"{self.port_name}에서 {AppConfig.SERIAL_TIMEOUT_SECONDS}초 동안 "
-                    "데이터가 오지 않았습니다."
+                    f"No data from {self.port_name} for "
+                    f"{AppConfig.SERIAL_TIMEOUT_SECONDS} seconds."
                 )
             try:
                 return parse_factory_line(raw.decode("utf-8").strip())
@@ -871,9 +874,9 @@ def make_current_header(
     left_width = (width - 3) // 2
     right_width = width - 3 - left_width
     title_text = (
-        "현재 측정값"
+        "Current reading"
         if sensor_title is None
-        else f"{sensor_title} · 현재 측정값"
+        else f"{sensor_title} · Current reading"
     )
     title = "─ " + title_text + " "
     if _display_width(title) > width - 2:
@@ -881,9 +884,9 @@ def make_current_header(
     result = ["┌" + title + "─" * (width - 2 - _display_width(title)) + "┐"]
     result.append(
         "│"
-        + _fit("현재 온도  (°C)", left_width, "center")
+        + _fit("Temperature  (°C)", left_width, "center")
         + "│"
-        + _fit("현재 상대습도  (%RH)", right_width, "center")
+        + _fit("Relative humidity  (%RH)", right_width, "center")
         + "│"
     )
     temperature_art = _big_number(temperature_c)
@@ -898,7 +901,7 @@ def make_current_header(
             right = ANSI_CYAN + right + ANSI_RESET
         result.append("│" + left + "│" + right + "│")
     measured = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(measured_at))
-    status = f"마지막 측정  {measured}   ·   10초마다 자동 갱신"
+    status = f"Last reading  {measured}   ·   updates every 10 seconds"
     result.append("│" + _fit(status, width - 2, "center") + "│")
     result.append("└" + "─" * (width - 2) + "┘")
     return result
@@ -935,12 +938,12 @@ def make_panel(
             / total_samples
         )
         summary = (
-            f"기간 평균   온도 {average_temperature:.2f} °C   ·   "
-            f"습도 {average_humidity:.2f} %RH   ·   측정 {total_samples}회"
+            f"Mean   temp {average_temperature:.2f} °C   ·   "
+            f"humidity {average_humidity:.2f} %RH   ·   {total_samples} samples"
         )
     else:
-        summary = "기간 평균   아직 표시할 측정값이 없습니다."
-        graph[graph_height // 2] = _fit("데이터 수집 중", graph_width, "center")
+        summary = "Mean   no readings to show yet"
+        graph[graph_height // 2] = _fit("Collecting data", graph_width, "center")
 
     result = [
         top,
@@ -977,10 +980,10 @@ def make_panel(
             + right_label
             + "│"
         )
-    past_label = label.removeprefix("최근 ") + " 전"
+    past_label = label.removeprefix("Last ") + " ago"
     time_axis = past_label + " " + "─" * max(
-        1, graph_width - _display_width(past_label) - _display_width("현재") - 2
-    ) + " 현재"
+        1, graph_width - _display_width(past_label) - _display_width("now") - 2
+    ) + " now"
     result.append(
         "│"
         + " " * axis_width
@@ -996,7 +999,7 @@ def render_dashboard(
     status: RuntimeStatus,
     all_points: Sequence[PlotPoint],
     autostart_enabled: bool,
-    sensor_name: str = "이름 없음",
+    sensor_name: str = "Unnamed",
     sensor_index: int = 0,
     sensor_count: int = 1,
     use_color: bool = True,
@@ -1006,8 +1009,9 @@ def render_dashboard(
     columns, lines = shutil.get_terminal_size((140, 46))
     if columns < AppConfig.MIN_TERMINAL_COLUMNS or lines < AppConfig.MIN_TERMINAL_LINES:
         raise RuntimeError(
-            f"터미널이 너무 작습니다. 현재 {columns}×{lines}, 최소 "
-            f"{AppConfig.MIN_TERMINAL_COLUMNS}×{AppConfig.MIN_TERMINAL_LINES}가 필요합니다."
+            f"Terminal too small: {columns}×{lines}; at least "
+            f"{AppConfig.MIN_TERMINAL_COLUMNS}×{AppConfig.MIN_TERMINAL_LINES} "
+            "is required."
         )
 
     if (
@@ -1016,7 +1020,7 @@ def render_dashboard(
         or status.temperature_c is None
         or status.humidity_rh is None
     ):
-        raise RuntimeError("백그라운드 기록기에서 현재 측정값을 받지 못했습니다.")
+        raise RuntimeError("No current reading received from the background logger.")
 
     now = int(time.time())
     header = make_current_header(
@@ -1055,15 +1059,15 @@ def render_dashboard(
     rows = list(header)
     for left, right in ((panels[0], panels[1]), (panels[2], panels[3])):
         rows.extend(a + " " + b for a, b in zip(left, right, strict=True))
-    startup = "켜짐" if autostart_enabled else "꺼짐"
+    startup = "on" if autostart_enabled else "off"
     if notice is None:
         footer = (
-            f"센서 {sensor_index + 1}/{sensor_count} · ←/→ 전환 · "
-            f"N 이름 변경 · E CSV · 자동 시작 {startup} · "
-            "Ctrl+C 화면 닫기"
+            f"Sensor {sensor_index + 1}/{sensor_count} · ←/→ switch · "
+            f"N rename · E CSV · Autostart {startup} · "
+            "Ctrl+C close monitor"
         )
         if allow_logger_stop:
-            footer += " · Ctrl+Q 전체 기록기 종료"
+            footer += " · Ctrl+Q stop logger"
     else:
         footer = notice
     rows.append(
@@ -1084,28 +1088,29 @@ def render_waiting_screen(
     columns, lines = shutil.get_terminal_size((140, 46))
     if columns < AppConfig.MIN_TERMINAL_COLUMNS or lines < AppConfig.MIN_TERMINAL_LINES:
         raise RuntimeError(
-            f"터미널이 너무 작습니다. 현재 {columns}×{lines}, 최소 "
-            f"{AppConfig.MIN_TERMINAL_COLUMNS}×{AppConfig.MIN_TERMINAL_LINES}가 필요합니다."
+            f"Terminal too small: {columns}×{lines}; at least "
+            f"{AppConfig.MIN_TERMINAL_COLUMNS}×{AppConfig.MIN_TERMINAL_LINES} "
+            "is required."
         )
 
     rows = [" " * columns for _ in range(lines)]
     middle = lines // 2
     messages = (
-        "SHT41 센서 재연결 대기 중",
+        "Waiting for the SHT41 sensor to reconnect",
         "",
-        f"마지막 선택 센서  {sensor_name} · ID {sensor_serial}",
-        "USB 연결을 확인하세요.",
-        "센서가 다시 감지되면 저장과 모니터링을 자동으로 이어갑니다.",
+        f"Last selected sensor  {sensor_name} · ID {sensor_serial}",
+        "Check the USB connection.",
+        "Logging and monitoring resume automatically once the sensor is detected.",
     )
     for offset, message in enumerate(messages, start=-3):
         rows[middle + offset] = _fit(message, columns, "center")
-    startup = "켜짐" if autostart_enabled else "꺼짐"
+    startup = "on" if autostart_enabled else "off"
     footer = (
-        f"재연결 자동 검색 중 · 자동 시작 {startup} · "
-        "Ctrl+C 화면 닫기"
+        f"Searching for the sensor · Autostart {startup} · "
+        "Ctrl+C close monitor"
     )
     if allow_logger_stop:
-        footer += " · Ctrl+Q 전체 기록기 종료"
+        footer += " · Ctrl+Q stop logger"
     rows[-1] = (
         (ANSI_DIM if use_color else "")
         + _fit(footer, columns)
@@ -1174,7 +1179,7 @@ class LoggerMutex:
                 None, False, f"Local\\SHT41MonitorLogger_{identity}"
             )
             if not handle:
-                raise RuntimeError("백그라운드 기록기 잠금을 만들지 못했습니다.")
+                raise RuntimeError("Could not create the background logger lock.")
             if ctypes.windll.kernel32.GetLastError() == 183:
                 ctypes.windll.kernel32.CloseHandle(handle)
                 return None
@@ -1190,7 +1195,7 @@ class LoggerMutex:
                 handle.close()
                 return None
             return cls(handle, windows=False)
-        raise RuntimeError(f"지원하지 않는 운영체제입니다: {os.name}")
+        raise RuntimeError(f"Unsupported operating system: {os.name}")
 
     def close(self) -> None:
         if self.windows:
@@ -1228,7 +1233,7 @@ def _run_sensor_connection(
         while not stop_event.is_set():
             if reading.sensor_serial != sensor_serial:
                 raise RuntimeError(
-                    f"{connection.port_name}의 센서 ID가 실행 중에 변경되었습니다."
+                    f"The sensor ID on {connection.port_name} changed while running."
                 )
             if time.monotonic() >= next_sample:
                 database.record(reading)
@@ -1236,10 +1241,10 @@ def _run_sensor_connection(
                 while next_sample <= time.monotonic():
                     next_sample += AppConfig.DISPLAY_SAMPLE_SECONDS
             reading = connection.read()
-        database.publish_state("stopped", "사용자가 전체 기록기를 종료했습니다.")
+        database.publish_state("stopped", "Logger stopped by the user.")
     except Exception as exc:
         message = (
-            f"센서 {sensor_serial} / {connection.port_name} · "
+            f"Sensor {sensor_serial} / {connection.port_name} · "
             f"{type(exc).__name__}: {exc}"
         )
         _write_logger_error(message)
@@ -1340,7 +1345,7 @@ def _spawn_logger() -> None:
     else:
         command = [str(_logger_executable()), str(Path(__file__).resolve()), "--logger"]
     if not Path(command[0]).exists():
-        raise RuntimeError("SHT41 Logger.exe가 없습니다. ZIP을 다시 압축 해제하세요.")
+        raise RuntimeError("SHT41 Logger.exe is missing. Extract the ZIP again.")
     subprocess.Popen(
         command,
         cwd=APPLICATION_DIRECTORY,
@@ -1357,7 +1362,7 @@ def _configure_windows_autostart() -> bool:
         return False
     logger = _logger_executable()
     if not logger.exists():
-        raise RuntimeError("SHT41 Logger.exe가 없습니다. ZIP을 다시 압축 해제하세요.")
+        raise RuntimeError("SHT41 Logger.exe is missing. Extract the ZIP again.")
     import winreg
 
     key_path = r"Software\Microsoft\Windows\CurrentVersion\Run"
@@ -1452,7 +1457,7 @@ def load_active_sensor_summaries(
             SensorSummary(
                 sensor_serial=sensor_serial,
                 display_name=(
-                    "이름 없음" if name_row is None else str(name_row[0])
+                    "Unnamed" if name_row is None else str(name_row[0])
                 ),
                 database_path=database_path,
                 status=status,
@@ -1472,11 +1477,11 @@ def _ensure_logger() -> list[SensorSummary]:
     elif sys.platform.startswith("linux"):
         if not _linux_service_state("is-active"):
             raise RuntimeError(
-                "sht41-logger.service가 실행 중이 아닙니다. "
-                "sudo systemctl start sht41-logger.service로 시작하세요."
+                "sht41-logger.service is not running. "
+                "Start it with: sudo systemctl start sht41-logger.service"
             )
     else:
-        raise RuntimeError(f"지원하지 않는 운영체제입니다: {sys.platform}")
+        raise RuntimeError(f"Unsupported operating system: {sys.platform}")
     deadline = time.monotonic() + AppConfig.PROBE_TIMEOUT_SECONDS + 12
     while time.monotonic() < deadline:
         time.sleep(0.2)
@@ -1491,7 +1496,7 @@ def _ensure_logger() -> list[SensorSummary]:
             AppConfig.LOGGER_ERROR_PATH.read_text(encoding="utf-8").strip()
         )
     raise RuntimeError(
-        "연결되어 데이터를 보내는 SHT41 센서를 제한 시간 안에 찾지 못했습니다."
+        "No connected SHT41 sensor sent data within the time limit."
     )
 
 
@@ -1504,13 +1509,13 @@ def request_logger_stop() -> None:
 def _validate_sensor_name(name: str) -> str:
     cleaned = name.strip()
     if not cleaned:
-        raise ValueError("센서 이름을 입력하지 않았습니다.")
+        raise ValueError("No sensor name was entered.")
     if any(ord(character) < 32 for character in cleaned):
-        raise ValueError("센서 이름에 제어 문자를 사용할 수 없습니다.")
+        raise ValueError("Sensor names cannot contain control characters.")
     if _display_width(cleaned) > AppConfig.MAX_SENSOR_NAME_WIDTH:
         raise ValueError(
-            f"센서 이름은 화면 너비 기준 {AppConfig.MAX_SENSOR_NAME_WIDTH}칸 "
-            "이하여야 합니다."
+            f"Sensor names can be at most {AppConfig.MAX_SENSOR_NAME_WIDTH} "
+            "terminal columns wide."
         )
     return cleaned
 
@@ -1583,7 +1588,7 @@ def _read_dashboard_action() -> str | None:
 
 def run_dashboard_app() -> None:
     _enable_windows_terminal()
-    print("백그라운드 기록기와 SHT41 센서를 확인하는 중입니다...")
+    print("Checking the background logger and SHT41 sensors...")
     cursor_hidden = False
     database: HistoryDatabase | None = None
     terminal_state = None
@@ -1721,8 +1726,8 @@ def run_dashboard_app() -> None:
                 terminal_state = None
                 print("\x1b[2J\x1b[H\x1b[?25h", end="", flush=True)
                 entered_name = input(
-                    f"센서 {selected_serial}의 새 이름 "
-                    f"(현재: {sensor_name}, Enter만 누르면 취소): "
+                    f"New name for sensor {selected_serial} "
+                    f"(current: {sensor_name}; press Enter alone to cancel): "
                 )
                 print("\x1b[2J\x1b[H\x1b[?25l", end="", flush=True)
                 terminal_state = _enable_unix_terminal_input()
@@ -1730,10 +1735,10 @@ def run_dashboard_app() -> None:
                     try:
                         sensor_name = _validate_sensor_name(entered_name)
                     except ValueError as exc:
-                        notice = f"이름 변경 실패 · {exc}"
+                        notice = f"Rename failed · {exc}"
                     else:
                         database.set_display_name(sensor_name)
-                        notice = f"센서 이름 변경 완료 · {sensor_name}"
+                        notice = f"Sensor renamed · {sensor_name}"
                     notice_until = time.monotonic() + 8
                 last_render_signature = None
             if action == "export_csv":
@@ -1742,8 +1747,9 @@ def run_dashboard_app() -> None:
                 )
                 relative_path = csv_path.relative_to(AppConfig.STATE_DIRECTORY)
                 notice = (
-                    f"CSV 저장 완료 · {relative_path} · 5분 기록 {row_count:,}행 · "
-                    "E 다시 내보내기 · Ctrl+C 화면 닫기"
+                    f"CSV saved · {relative_path} · "
+                    f"{row_count:,} rows of 5-min history · "
+                    "E export again · Ctrl+C close monitor"
                 )
                 notice_until = time.monotonic() + 8
                 last_render_signature = None
@@ -1765,5 +1771,5 @@ if __name__ == "__main__":
         try:
             run_dashboard_app()
         except Exception as exc:
-            print(f"\n오류: {exc}", file=sys.stderr)
+            print(f"\nError: {exc}", file=sys.stderr)
             raise SystemExit(1)

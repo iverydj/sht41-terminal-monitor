@@ -37,7 +37,7 @@ def main() -> None:
 
     for source, name, _ in BuildConfig.FILES:
         if not source.is_file():
-            raise RuntimeError(f"배포 파일이 없습니다: {source}")
+            raise RuntimeError(f"Missing distribution file: {source}")
 
     with zipfile.ZipFile(BuildConfig.ZIP_PATH, mode="w") as archive:
         for source, name, executable in BuildConfig.FILES:
@@ -48,7 +48,7 @@ def main() -> None:
                 executable,
             )
 
-    print(f"완료: {BuildConfig.ZIP_PATH}")
+    print(f"Done: {BuildConfig.ZIP_PATH}")
 
 
 if __name__ == "__main__":

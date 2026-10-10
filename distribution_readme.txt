@@ -1,175 +1,144 @@
-SHT41 온습도 터미널 모니터 v2
-==============================
+SHT41 Terminal Monitor v2 for Windows
+=====================================
 
-1. 지원 환경
+Requirements: Windows 10 or 11 (64-bit) and an Adafruit SHT41 Trinkey with
+the Adafruit factory firmware. Python and an internet connection are not
+needed.
+
+
+1. First run
 ------------
 
-- Windows 10 또는 Windows 11, 64비트
-- Adafruit SHT41 Trinkey와 Adafruit 출고 펌웨어
-- 인터넷과 Python 설치는 필요하지 않습니다.
+1) Right-click the ZIP and choose "Extract All". Do not run the EXE from
+   inside the ZIP.
+2) Put the extracted "SHT41 Monitor" folder somewhere writable, such as the
+   Desktop or Documents. Avoid Program Files and other admin-only folders.
+3) Plug the SHT41 Trinkey into any USB port; several can be connected at
+   once. On a PC that has not seen the sensor before, give Windows a moment
+   to set up the device.
+4) Double-click "SHT41 Monitor.exe". It finds the Adafruit USB devices and
+   their COM ports automatically.
+
+"SHT41 Logger.exe" is the windowless logger that takes and stores the
+readings. You never need to start it yourself, but do not delete or rename it.
+
+Updating from an earlier version:
+1) Close the old monitor and stop its logger (Ctrl+Q in the monitor).
+2) Copy the old "data" folder into the new "SHT41 Monitor" folder.
+3) Run the new "SHT41 Monitor.exe". Your history continues where it left off.
 
 
-2. 처음 실행하기
-----------------
-
-1) 받은 ZIP 파일을 우클릭하여 "압축 풀기"로 완전히 풉니다.
-   ZIP 파일 내부에서 EXE를 직접 실행하지 마세요.
-
-2) 압축을 푼 "SHT41 Monitor" 폴더를 바탕화면이나 문서 폴더처럼
-   파일을 저장할 수 있는 위치에 둡니다.
-   Program Files처럼 관리자 권한이 필요한 폴더에는 두지 마세요.
-
-3) SHT41 Trinkey를 PC의 아무 USB 포트에나 연결합니다. 여러 개를 동시에
-   연결해도 됩니다.
-   처음 연결한 PC에서는 Windows가 장치를 준비할 때까지 잠시 기다립니다.
-
-4) "SHT41 Monitor.exe"를 더블클릭합니다.
-   프로그램이 연결된 Adafruit USB 장치와 COM 포트를 모두 자동으로 찾습니다.
-
-"SHT41 Logger.exe"는 창 없이 측정과 저장을 담당하는 파일입니다.
-직접 실행할 필요가 없으며 삭제하거나 이름을 바꾸면 안 됩니다.
-
-[이전 버전에서 업데이트하는 경우]
-
-1) 이전 SHT41 Monitor 창과 관련 프로세스를 모두 종료합니다.
-2) 기존 프로그램 폴더의 "data" 폴더를 새 "SHT41 Monitor" 폴더로 복사합니다.
-3) 새 "SHT41 Monitor.exe"를 실행합니다.
-
-이 과정을 따르면 기존 온습도 기록을 이어서 사용할 수 있습니다.
-
-
-3. 화면 읽는 법
----------------
-
-화면 맨 위의 큰 숫자는 현재 온도와 현재 상대습도입니다. 10초마다 새로운
-측정값으로 갱신됩니다.
-
-화면 첫 줄에는 선택한 센서의 이름, 고유 ID, COM 포트가 표시됩니다.
-처음 발견한 센서의 이름은 "이름 없음"입니다.
-
-- N: 현재 선택한 센서에 사람이 알아보기 쉬운 이름 지정
-- ←/→: 연결된 센서 사이에서 화면 전환
-
-센서 이름은 고유 ID에 연결하여 저장되므로 USB 포트가 바뀌거나 센서를
-다시 연결해도 유지됩니다. 여러 센서를 연결하면 백그라운드 기록기는
-모두 동시에 기록하고, 화면에는 선택한 센서 하나의 그래프를 보여줍니다.
-
-사용 중 USB 연결이 끊기면 모니터 창은 닫히지 않고 "센서 재연결 대기 중"
-화면으로 바뀝니다. 센서를 다시 연결하면 같은 센서 ID의 기록 파일에
-자동으로 이어서 저장하고 4패널 화면도 자동 복원합니다. 연결이 끊긴
-시간에는 측정값을 임의로 채우지 않고 실제 기록 공백으로 남깁니다.
-
-여러 센서 중 선택한 센서만 끊기고 다른 센서가 계속 연결되어 있으면
-연결된 다른 센서 화면으로 자동 전환합니다.
-
-아래 네 패널은 최근 10분, 1시간, 1일, 1주 추세를 동시에 보여줍니다.
-각 패널에는 해당 기간의 평균 온도, 평균 습도, 실제 측정 횟수가 쉬운
-문장으로 표시됩니다.
-
-- 그래프 왼쪽 Y축: °C
-- 그래프 오른쪽 Y축: %RH
-- 그래프 아래쪽 X축: 해당 기간의 시작 시점부터 현재까지
-- 빨강: 온도
-- 청록: 상대습도
-- 자홍: 두 선이 같은 점자 문자 셀에서 겹친 부분
-
-온도와 습도는 단위와 변화 폭이 다르므로 각자의 Y축을 사용합니다.
-
-
-4. CSV로 내보내기
------------------
-
-모니터 화면에서 E 키를 누르면 현재 화면에서 선택한 센서의 장기 기록
-전체가 다음 폴더에 새 CSV 파일로 저장됩니다. 백그라운드 기록기는
-멈추지 않습니다.
-
-    exports\sensor_센서ID\SHT41_기록_YYYYMMDD_HHMMSS.csv
-
-CSV의 한 행은 5분 구간 하나이며 다음 내용을 담습니다.
-
-- 센서 이름과 고유 ID
-- 구간 시작 시각: PC 현지시간과 UTC를 모두 표시
-- 평균/최저/최고 온도(°C)
-- 평균/최저/최고 상대습도(%RH)
-- 해당 구간의 유효 측정 횟수
-
-CSV는 Microsoft Excel에서 한글이 깨지지 않는 UTF-8 형식입니다. E 키를
-누를 때마다 기존 파일을 덮어쓰지 않고 새 파일을 만듭니다.
-
-
-5. 화면을 닫은 뒤의 기록
--------------------------
-
-Ctrl+C를 누르거나 터미널 창의 X 버튼을 눌러도 창 없는 백그라운드 기록기는
-계속 실행됩니다. 다시 "SHT41 Monitor.exe"를 실행하면 진행 중인 기록에
-연결하여 화면을 표시합니다.
-
-현재 백그라운드 기록기와 모든 센서 수집을 종료하려면 터미널에서
-Ctrl+Q를 누릅니다.
-다음 Windows 로그인 때는 기록기가 다시 자동 시작됩니다.
-
-처음 모니터를 실행하면 현재 사용자 계정의 Windows 로그인 자동 시작에
-"SHT41 Monitor Logger"가 등록됩니다. 관리자 권한은 필요하지 않습니다.
-자동 시작 이후 연결되어 있는 모든 센서를 기록합니다. 실행 중에 새 센서를
-연결해도 자동으로 찾아 별도 기록을 시작합니다.
-
-프로그램 폴더를 다른 위치로 옮겼다면 새 위치에서 "SHT41 Monitor.exe"를
-한 번 실행하여 자동 시작 경로를 갱신하세요.
-
-
-6. 기록 파일
+2. The screen
 -------------
 
-첫 실행 후 EXE와 같은 폴더에 센서 ID별로 다음 파일이 자동 생성됩니다.
+The top line shows the selected sensor's name, ID and COM port. The large
+numbers are the current temperature and relative humidity, refreshed every
+10 seconds. A newly found sensor is called "Unnamed".
+
+  Left/Right arrows  switch between connected sensors
+  N                  give the selected sensor a readable name
+  E                  export the selected sensor's history to CSV
+  Ctrl+C             close the monitor (logging continues)
+  Ctrl+Q             close the monitor and stop the logger for all sensors
+
+Names are stored with the sensor ID, so they survive a different USB port or
+reconnecting. The logger records every connected sensor at the same time; the
+monitor shows one sensor at a time.
+
+The four panels show the last 10 minutes, 1 hour, 24 hours and 7 days, each
+with that period's mean temperature, mean humidity and number of samples.
+
+  - left axis: °C; right axis: %RH (each series has its own scale)
+  - bottom axis: from the start of the period to now
+  - red: temperature; cyan: relative humidity; magenta: both lines in the
+    same character cell
+
+If the USB connection drops, the monitor stays open and shows "Waiting for
+the SHT41 sensor to reconnect". When the sensor is plugged back in, logging
+resumes in the same per-sensor file and the dashboard comes back. Time while
+disconnected is left as a gap, never filled in. If only the selected sensor
+disconnects while others stay connected, the monitor switches to one of them.
+
+
+3. CSV export
+-------------
+
+Press E to write the selected sensor's full long-term history to a new file
+(the logger keeps running):
+
+    exports\sensor_<ID>\SHT41_history_YYYYMMDD_HHMMSS.csv
+
+Each row is one 5-minute interval: sensor name and ID, interval start in
+local time and UTC, mean/min/max temperature (°C), mean/min/max relative
+humidity (%RH), and the number of valid samples. The file is UTF-8 with a
+byte-order mark, so Excel displays non-English sensor names correctly. Every
+export creates a new file; existing files are never overwritten.
+
+
+4. Logging in the background
+----------------------------
+
+Closing the monitor with Ctrl+C or the window's X button does not stop the
+logger. Running "SHT41 Monitor.exe" again reconnects to it.
+
+Ctrl+Q stops the logger for all sensors. It starts again the next time you
+open the monitor or sign in to Windows.
+
+On first run the monitor registers "SHT41 Monitor Logger" to start at Windows
+sign-in for the current user; no administrator rights are needed. The logger
+records every connected sensor and picks up newly connected ones
+automatically. If you move the program folder, run "SHT41 Monitor.exe" once
+from the new location to update the autostart entry.
+
+
+5. Data files
+-------------
+
+On first run each sensor gets its own file next to the EXE:
 
     data\sensor_1234567890\sht41_history.sqlite3
     data\sensor_2345678901\sht41_history.sqlite3
 
-각 파일에는 해당 센서의 실시간 추세와 장기 기록만 들어갑니다. 이전 v1의
-`data\sht41_history.sqlite3`가 있으면 내부 센서 ID를 읽어 알맞은
-`data\sensor_센서ID` 폴더로 자동 이전합니다.
+Each file holds only that sensor's data: 10-second readings for the last
+7 days (for the graphs) and, for the long term, one row per 5 minutes with
+mean, minimum and maximum temperature and humidity and the number of valid
+samples. Values are stored as integers in hundredths, so the file is smaller
+than a CSV. Restarting the program reloads the history and restores the
+graphs.
 
-화면과 최근 추세를 위해 10초 측정값을 최근 1주 동안 순환 보관합니다.
-장기 기록은 10초 측정값을 5분 단위로 묶어 다음 통계만 저장합니다.
+A v1 "data\sht41_history.sqlite3" is moved automatically into the matching
+"data\sensor_<ID>" folder.
 
-- 평균 온도와 평균 상대습도
-- 최소/최대 온도
-- 최소/최대 상대습도
-- 해당 구간의 유효 측정 개수
-
-수치는 소수점 둘째 자리 정수와 SQLite 형식으로 저장되어 CSV보다 작습니다.
-프로그램을 다시 실행하면 지난 기록을 읽어 그래프를 복원합니다.
-
-기록을 백업하거나 다른 PC로 옮길 때는 Ctrl+Q로 기록기를 종료한 뒤
-"data" 폴더를 함께 복사하세요. 센서를 바꾸거나 여러 개 연결해도 고유
-ID별 파일에 저장되므로 서로 다른 센서의 기록이 섞이지 않습니다.
+To back up the history or move it to another PC, stop the logger with Ctrl+Q
+and copy the whole "data" folder. Readings from different sensors never mix,
+because each sensor ID has its own file.
 
 
-7. 실행되지 않을 때
---------------------
+6. Troubleshooting
+------------------
 
-[센서를 찾지 못함]
+[Sensor not found]
 
-- SHT41 Trinkey를 뺐다가 다시 연결합니다.
-- 이전 버전의 SHT41 Monitor 창과 백그라운드 프로세스를 모두 종료합니다.
-- Arduino Serial Monitor, Mu Editor, PuTTY처럼 COM 포트를 사용하는 프로그램을
-  모두 닫습니다.
-- Windows 장치 관리자의 "포트(COM 및 LPT)"에 USB 직렬 장치가 나타나는지
-  확인합니다.
-- 센서 펌웨어를 변경했다면 Adafruit 출고 펌웨어로 복원해야 합니다.
+- Unplug the Trinkey and plug it back in.
+- Close older SHT41 Monitor windows and their background processes.
+- Close programs that may hold the COM port, such as Arduino Serial Monitor,
+  Mu Editor or PuTTY.
+- Check that a USB serial device appears under "Ports (COM & LPT)" in
+  Device Manager.
+- If the sensor firmware was changed, restore the Adafruit factory firmware.
 
-[기록 파일을 만들 수 없음]
+[Cannot create the data file]
 
-- 프로그램 폴더를 바탕화면이나 문서 폴더로 옮깁니다.
-- 읽기 전용 USB 드라이브나 Program Files에서는 실행하지 마세요.
+- Move the program folder to the Desktop or Documents.
+- Do not run it from a read-only USB drive or from Program Files.
 
-[Windows 보호 화면이 나타남]
+[Windows protection screen]
 
-이 EXE는 상용 코드 서명이 없는 로컬 제작 프로그램이므로 Microsoft
-Defender SmartScreen에서 "알 수 없는 게시자"로 표시될 수 있습니다.
-신뢰하는 경로에서 받은 ZIP인지 확인한 경우에만 "추가 정보"에서 실행하세요.
+The EXE has no commercial code signature, so Microsoft Defender SmartScreen
+may report an "Unknown publisher". Choose "More info" and run it only if the
+ZIP came from a source you trust.
 
-[프로그램을 두 번 실행함]
+[Started twice]
 
-화면은 여러 번 열지 않는 것이 좋습니다. 백그라운드 기록기는 중복 실행을
-자동으로 차단하므로 센서 기록은 한 프로세스에서만 수행됩니다.
+Avoid opening several monitor windows. The logger blocks duplicate instances
+itself, so only one process ever records the sensors.

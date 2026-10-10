@@ -12,12 +12,12 @@ if not exist ".venv\Scripts\python.exe" (
 if errorlevel 1 goto :error
 
 echo.
-echo 설치가 완료되었습니다. "SHT41 Monitor" 바로가기를 실행하세요.
+echo Setup complete. Start the monitor with launch_monitor.cmd.
 pause
 exit /b 0
 
 :error
 echo.
-echo 설치에 실패했습니다.
+echo Setup failed.
 pause
 exit /b 1
